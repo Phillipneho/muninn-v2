@@ -304,11 +304,15 @@ export function detectContradictions(
   const contradictions: Array<{ fact: ExtractedFact; type: 'value_conflict' | 'temporal_overlap' | 'logical' }> = [];
   
   for (const existing of existingFacts) {
+    // Skip if objects are null/undefined
+    const existingObj = existing.object?.toLowerCase() || '';
+    const newObj = newFact.object?.toLowerCase() || '';
+    
     // Same subject, same predicate, different object
     if (
       existing.subject.toLowerCase() === newFact.subject.toLowerCase() &&
       existing.predicate === newFact.predicate &&
-      existing.object.toLowerCase() !== newFact.object.toLowerCase()
+      existingObj !== newObj
     ) {
       contradictions.push({
         fact: existing,
@@ -323,7 +327,8 @@ export function detectContradictions(
       existing.predicate === newFact.predicate &&
       existing.validFrom &&
       newFact.validFrom &&
-      existing.validFrom !== newFact.validFrom
+      existing.validFrom !== newFact.validFrom &&
+      existingObj && newObj && existingObj !== newObj
     ) {
       // Check if time ranges overlap and values differ
       contradictions.push({

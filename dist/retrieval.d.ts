@@ -33,7 +33,7 @@ export declare class Retriever {
     /**
      * Extract entities from query using LLM
      */
-    private extractEntities;
+    extractEntities(query: string): Promise<string[]>;
     /**
      * Parse temporal intent from query
      */

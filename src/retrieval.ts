@@ -170,7 +170,7 @@ export class Retriever {
   /**
    * Extract entities from query using LLM
    */
-  private async extractEntities(query: string): Promise<string[]> {
+  async extractEntities(query: string): Promise<string[]> {
     // First, try simple pattern matching
     // Exclude question words and common articles
     const questionWords = ['what', 'where', 'when', 'who', 'how', 'which', 'why', 'does', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'that', 'this', 'these', 'those'];

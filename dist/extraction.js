@@ -265,10 +265,13 @@ function levenshteinDistance(a, b) {
 export function detectContradictions(newFact, existingFacts) {
     const contradictions = [];
     for (const existing of existingFacts) {
+        // Skip if objects are null/undefined
+        const existingObj = existing.object?.toLowerCase() || '';
+        const newObj = newFact.object?.toLowerCase() || '';
         // Same subject, same predicate, different object
         if (existing.subject.toLowerCase() === newFact.subject.toLowerCase() &&
             existing.predicate === newFact.predicate &&
-            existing.object.toLowerCase() !== newFact.object.toLowerCase()) {
+            existingObj !== newObj) {
             contradictions.push({
                 fact: existing,
                 type: 'value_conflict'
@@ -280,7 +283,8 @@ export function detectContradictions(newFact, existingFacts) {
             existing.predicate === newFact.predicate &&
             existing.validFrom &&
             newFact.validFrom &&
-            existing.validFrom !== newFact.validFrom) {
+            existing.validFrom !== newFact.validFrom &&
+            existingObj && newObj && existingObj !== newObj) {
             // Check if time ranges overlap and values differ
             contradictions.push({
                 fact: existing,

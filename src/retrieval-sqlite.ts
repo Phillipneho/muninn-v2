@@ -74,14 +74,20 @@ export class Retriever {
    * Extract entities from query using simple patterns
    */
   private extractEntitiesSimple(query: string): string[] {
+    // Question words and articles to exclude
+    const questionWords = ['who', 'what', 'where', 'when', 'why', 'how', 'which', 'does', 'is', 'are', 'was', 'were', 'the', 'a', 'an', 'that', 'this', 'these', 'those'];
+    
     // Find capitalized words (likely named entities)
     const capitalized = query.match(/\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b/g) || [];
     
     // Find quoted strings
     const quoted = query.match(/"([^"]+)"/g)?.map(s => s.replace(/"/g, '')) || [];
     
-    // Combine and dedupe
-    return [...new Set([...capitalized, ...quoted])];
+    // Combine, filter, and dedupe
+    const all = [...capitalized, ...quoted];
+    const filtered = all.filter(word => !questionWords.includes(word.toLowerCase()));
+    
+    return [...new Set(filtered)];
   }
   
   /**
