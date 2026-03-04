@@ -53,14 +53,14 @@ async function test() {
   // 4. Test RRF with mock data
   console.log('4. Reciprocal Rank Fusion:');
   const mockSqlResults = [
-    { id: '1', subject: 'Caroline', predicate: 'feels', object: 'anxious' } as any,
-    { id: '2', subject: 'Caroline', predicate: 'went_to', object: 'park' } as any,
-    { id: '3', subject: 'Caroline', predicate: 'researches', object: 'adoption' } as any
+    { id: '1', predicate: 'feels', objectValue: 'anxious' } as any,
+    { id: '2', predicate: 'went_to', objectValue: 'park' } as any,
+    { id: '3', predicate: 'researches', objectValue: 'adoption' } as any
   ];
   
   const mockVectorResults = [
-    { id: '1', subject: 'Caroline', predicate: 'feels', object: 'anxious' } as any,
-    { id: '4', subject: 'Caroline', predicate: 'is_stressed', object: 'about move' } as any
+    { id: '1', predicate: 'feels', objectValue: 'anxious' } as any,
+    { id: '4', predicate: 'is_stressed', objectValue: 'about move' } as any
   ];
   
   const merged = reciprocalRankFusion(mockSqlResults, mockVectorResults, {
@@ -73,7 +73,7 @@ async function test() {
   console.log('   Vector results: 2 facts');
   console.log('   Merged results:');
   merged.slice(0, 5).forEach((r, i) => {
-    console.log(`     ${i + 1}. ${r.fact.subject} ${r.fact.predicate} ${r.fact.object} (score: ${r.score.toFixed(3)}, source: ${r.source})`);
+    console.log(`     ${i + 1}. ${r.fact.predicate} ${r.fact.objectValue || ''} (score: ${r.score.toFixed(3)}, source: ${r.source})`);
   });
   
   // 5. Test storage with embedding

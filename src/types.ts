@@ -117,6 +117,16 @@ export interface ExtractionResult {
   facts: ExtractedFact[];
   entities: ExtractedEntity[];
   events: ExtractedEvent[];
+  relationships?: ExtractedRelationship[];
+}
+
+// v3.1: Relationship extraction
+export interface ExtractedRelationship {
+  source: string;
+  target: string;
+  relationshipType: string;  // 'is_partner_of', 'works_for', 'parent_of', 'friend_of'
+  confidence: number;
+  evidence?: string;
 }
 
 // Retrieval types

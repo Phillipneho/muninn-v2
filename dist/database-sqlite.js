@@ -113,6 +113,24 @@ export class MuninnDatabase {
       CREATE INDEX IF NOT EXISTS idx_aliases_entity ON entity_aliases(entity_id);
       CREATE INDEX IF NOT EXISTS idx_aliases_alias ON entity_aliases(alias COLLATE NOCASE);
       
+      CREATE TABLE IF NOT EXISTS entity_relationships (
+        id TEXT PRIMARY KEY,
+        source_entity_id TEXT NOT NULL REFERENCES entities(id),
+        target_entity_id TEXT NOT NULL REFERENCES entities(id),
+        relationship_type TEXT NOT NULL,
+        valid_from TEXT,
+        valid_until TEXT,
+        invalidated_at TEXT,
+        confidence REAL DEFAULT 0.8,
+        evidence TEXT,
+        source_episode_id TEXT REFERENCES episodes(id),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_er_source ON entity_relationships(source_entity_id);
+      CREATE INDEX IF NOT EXISTS idx_er_target ON entity_relationships(target_entity_id);
+      CREATE INDEX IF NOT EXISTS idx_er_type ON entity_relationships(relationship_type);
+      
       CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject_entity_id);
       CREATE INDEX IF NOT EXISTS idx_facts_predicate ON facts(predicate);
       CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_id);
@@ -427,6 +445,105 @@ export class MuninnDatabase {
             relationshipCount: relationshipCount.count,
             contradictionCount: contradictionCount.count
         };
+    }
+    // ============================================
+    // ENTITY RELATIONSHIP OPERATIONS (v3.1)
+    // ============================================
+    createEntityRelationship(relationship) {
+        const id = randomUUID();
+        const now = new Date().toISOString();
+        const stmt = this.db.prepare(`
+      INSERT INTO entity_relationships (
+        id, source_entity_id, target_entity_id, relationship_type,
+        confidence, evidence, source_episode_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT DO UPDATE SET
+        confidence = MAX(confidence, EXCLUDED.confidence)
+      RETURNING id, source_entity_id, target_entity_id, relationship_type
+    `);
+        const result = stmt.get(id, relationship.sourceEntityId, relationship.targetEntityId, relationship.relationshipType, relationship.confidence || 0.8, relationship.evidence || null, relationship.sourceEpisodeId || null, now);
+        return result;
+    }
+    getEntityRelationships(entityId, direction = 'both') {
+        const outgoingStmt = this.db.prepare(`
+      SELECT er.*, e.name as target_name, e.type as target_type
+      FROM entity_relationships er
+      JOIN entities e ON er.target_entity_id = e.id
+      WHERE er.source_entity_id = ? AND er.invalidated_at IS NULL
+      ORDER BY er.confidence DESC
+    `);
+        const incomingStmt = this.db.prepare(`
+      SELECT er.*, e.name as source_name, e.type as source_type
+      FROM entity_relationships er
+      JOIN entities e ON er.source_entity_id = e.id
+      WHERE er.target_entity_id = ? AND er.invalidated_at IS NULL
+      ORDER BY er.confidence DESC
+    `);
+        const results = [];
+        if (direction === 'outgoing' || direction === 'both') {
+            results.push(...outgoingStmt.all(entityId));
+        }
+        if (direction === 'incoming' || direction === 'both') {
+            results.push(...incomingStmt.all(entityId));
+        }
+        return results;
+    }
+    findRelatedEntities(entityId, relationshipType) {
+        const stmt = this.db.prepare(`
+      SELECT 
+        CASE 
+          WHEN er.source_entity_id = ? THEN er.target_entity_id
+          ELSE er.source_entity_id
+        END as related_entity_id,
+        CASE 
+          WHEN er.source_entity_id = ? THEN e2.name
+          ELSE e1.name
+        END as related_entity_name,
+        er.relationship_type
+      FROM entity_relationships er
+      JOIN entities e1 ON er.source_entity_id = e1.id
+      JOIN entities e2 ON er.target_entity_id = e2.id
+      WHERE (er.source_entity_id = ? OR er.target_entity_id = ?)
+        AND er.invalidated_at IS NULL
+        ${relationshipType ? 'AND er.relationship_type = ?' : ''}
+      ORDER BY er.confidence DESC
+    `);
+        const params = relationshipType
+            ? [entityId, entityId, entityId, entityId, relationshipType]
+            : [entityId, entityId, entityId, entityId];
+        return stmt.all(...params);
+    }
+    traverseRelationships(entityId, relationshipType, depth = 1) {
+        if (depth === 0) {
+            const entity = this.db.prepare('SELECT id, name FROM entities WHERE id = ?').get(entityId);
+            return entity ? [{ entityId: entity.id, entityName: entity.name, path: [] }] : [];
+        }
+        const results = [];
+        const visited = new Set([entityId]);
+        const traverse = (currentId, currentPath, remainingDepth) => {
+            if (remainingDepth === 0)
+                return;
+            const related = this.findRelatedEntities(currentId, relationshipType);
+            for (const rel of related) {
+                // Map snake_case from SQL to camelCase
+                const relatedId = rel.related_entity_id || rel.relatedEntityId;
+                const relatedName = rel.related_entity_name || rel.relatedEntityName;
+                const relType = rel.relationship_type || rel.relationshipType;
+                if (relatedId && !visited.has(relatedId)) {
+                    visited.add(relatedId);
+                    const newPath = [...currentPath, relType];
+                    results.push({
+                        entityId: relatedId,
+                        entityName: relatedName,
+                        path: newPath
+                    });
+                    traverse(relatedId, newPath, remainingDepth - 1);
+                }
+            }
+        };
+        traverse(entityId, [], depth);
+        return results;
     }
     close() {
         this.db.close();

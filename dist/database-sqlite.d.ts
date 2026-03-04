@@ -35,6 +35,30 @@ export declare class MuninnDatabase {
         relationshipCount: number;
         contradictionCount: number;
     };
+    createEntityRelationship(relationship: {
+        sourceEntityId: string;
+        targetEntityId: string;
+        relationshipType: string;
+        confidence?: number;
+        evidence?: string;
+        sourceEpisodeId?: string;
+    }): {
+        id: string;
+        sourceEntityId: string;
+        targetEntityId: string;
+        relationshipType: string;
+    };
+    getEntityRelationships(entityId: string, direction?: 'outgoing' | 'incoming' | 'both'): any[];
+    findRelatedEntities(entityId: string, relationshipType?: string): Array<{
+        relatedEntityId: string;
+        relatedEntityName: string;
+        relationshipType: string;
+    }>;
+    traverseRelationships(entityId: string, relationshipType: string, depth?: number): Array<{
+        entityId: string;
+        entityName: string;
+        path: string[];
+    }>;
     close(): void;
     transaction<T>(fn: () => T): T;
 }

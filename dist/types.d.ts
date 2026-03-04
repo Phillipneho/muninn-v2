@@ -97,6 +97,14 @@ export interface ExtractionResult {
     facts: ExtractedFact[];
     entities: ExtractedEntity[];
     events: ExtractedEvent[];
+    relationships?: ExtractedRelationship[];
+}
+export interface ExtractedRelationship {
+    source: string;
+    target: string;
+    relationshipType: string;
+    confidence: number;
+    evidence?: string;
 }
 export interface RecallOptions {
     limit?: number;
