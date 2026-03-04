@@ -12,65 +12,90 @@ const muninn = new Muninn(dbPath);
 // Semantic Bridge mappings (commonsense knowledge)
 const COMMONSENSE_MAPPINGS: Record<string, string[]> = {
   // Location → Condition
-  'hospital': ['unwell', 'medical', 'sick'],
-  'office': ['working', 'professional', 'employed'],
-  'outdoors': ['nature', 'fresh air', 'adventure'],
-  'national park': ['nature', 'hiking', 'outdoors'],
+  'hospital': ['unwell', 'medical', 'sick', 'health'],
+  'office': ['working', 'professional', 'employed', 'career'],
+  'outdoors': ['nature', 'fresh air', 'adventure', 'hiking'],
+  'national park': ['nature', 'hiking', 'outdoors', 'wilderness'],
   'museum': ['culture', 'art', 'learning', 'sophisticated'],
+  'beach': ['relaxation', 'nature', 'outdoors', 'vacation'],
 
   // Interest → Preference
-  'opera': ['classical music', 'sophisticated', 'culture'],
-  'classical music': ['refined', 'sophisticated', 'artistic'],
-  'hiking': ['outdoors', 'nature', 'adventure'],
-  'reading': ['intellectual', 'curious', 'quiet'],
+  'opera': ['classical music', 'sophisticated', 'culture', 'refined'],
+  'classical music': ['refined', 'sophisticated', 'artistic', 'cultured'],
+  'vivaldi': ['classical music', 'refined', 'sophisticated'],
+  'hiking': ['outdoors', 'nature', 'adventure', 'fitness'],
+  'reading': ['intellectual', 'curious', 'quiet', 'learning'],
   'pottery': ['artistic', 'creative', 'hands-on'],
+  'swimming': ['fitness', 'outdoors', 'relaxation'],
 
   // Value → Behavior
-  'transgender': ['lgbtq', 'supportive', 'advocacy'],
-  'progressive': ['liberal', 'open-minded', 'change'],
-  'conservative': ['traditional', 'cautious', 'stable'],
+  'transgender': ['lgbtq', 'supportive', 'advocacy', 'community'],
+  'progressive': ['liberal', 'open-minded', 'change', 'equality'],
+  'conservative': ['traditional', 'cautious', 'stable', 'values'],
+  'lgbtq': ['supportive', 'inclusive', 'community', 'ally'],
+  'advocacy': ['helping', 'supportive', 'activism', 'community'],
 
   // Activity → Trait
-  'counseling': ['helping', 'empathetic', 'supportive'],
-  'teaching': ['patient', 'knowledgeable', 'mentoring'],
-  'volunteering': ['altruistic', 'community', 'helpful'],
+  'counseling': ['helping', 'empathetic', 'supportive', 'psychology'],
+  'teaching': ['patient', 'knowledgeable', 'mentoring', 'education'],
+  'volunteering': ['altruistic', 'community', 'helpful', 'supportive'],
+  'psychology': ['helping', 'empathetic', 'understanding', 'counseling'],
 
   // Preference → Inference
   'children': ['family', 'nurturing', 'patient'],
-  'nature': ['outdoors', 'peaceful', 'environmental'],
-  'art': ['creative', 'expressive', 'visual']
+  'nature': ['outdoors', 'peaceful', 'environmental', 'hiking'],
+  'art': ['creative', 'expressive', 'visual', 'sophisticated'],
+  'sophisticated': ['refined', 'cultured', 'classical', 'artistic'],
+
+  // Social → Ally inference
+  'nature lover': ['environmental', 'peaceful', 'hiking', 'parks'],
+  'community': ['supportive', 'social', 'connected', 'involved'],
+
+  // Religious/Spiritual
+  'church': ['religious', 'faith', 'worship', 'community'],
+  'prayer': ['religious', 'spiritual', 'faith', 'devout'],
+  'faith': ['religious', 'belief', 'spiritual', 'values'],
+
+  // Career fields
+  'helping': ['counseling', 'social work', 'psychology', 'teaching'],
+  'support': ['counseling', 'advocacy', 'social work', 'helping']
 };
 
 // Inference categories with semantic expansion
-const INFERENCE_CATEGORIES: Record<string, { 
-  keywords: string[]; 
+const INFERENCE_CATEGORIES: Record<string, {
+  keywords: string[];
   semanticHooks: string[];
   logicalBridge: string;
 }> = {
   career: {
-    keywords: ['job', 'work', 'profession', 'career', 'pursue', 'field', 'aspiration'],
-    semanticHooks: ['volunteering', 'helping', 'advocacy', 'counseling', 'studies', 'skills', 'passion', 'education', 'training', 'service'],
+    keywords: ['job', 'work', 'profession', 'career', 'pursue', 'field', 'aspiration', 'occupation'],
+    semanticHooks: ['volunteering', 'helping', 'advocacy', 'counseling', 'studies', 'skills', 'passion', 'education', 'training', 'service', 'support', 'teaching', 'mentoring'],
     logicalBridge: 'Values and volunteer history imply professional trajectory.'
   },
   preference: {
-    keywords: ['enjoy', 'like', 'would', 'prefer', 'interest', 'love', 'favorite'],
-    semanticHooks: ['vibe', 'atmosphere', 'sophisticated', 'refined', 'raw', 'classical', 'aesthetic', 'taste', 'style', 'environment'],
-    logicalBridge: 'Environment and cultural preferences imply object preferences.'
+    keywords: ['enjoy', 'like', 'love', 'dislike', 'hate', 'fan', 'favorite', 'would', 'prefer', 'interest'],
+    semanticHooks: ['atmosphere', 'vibe', 'sophisticated', 'refined', 'classical', 'aesthetic', 'comfort', 'style', 'taste', 'environment', 'nature', 'outdoors', 'music', 'art'],
+    logicalBridge: 'Environmental affinity implies specific object preferences.'
   },
   political: {
-    keywords: ['political', 'leaning', 'vote', 'party', 'liberal', 'conservative', 'progressive'],
-    semanticHooks: ['values', 'stance', 'justice', 'traditional', 'community', 'freedom', 'rights', 'equality', 'activism', 'advocacy'],
-    logicalBridge: 'Social values and activism imply political alignment.'
+    keywords: ['political', 'leaning', 'vote', 'party', 'liberal', 'conservative', 'progressive', 'politics', 'stance', 'ideology'],
+    semanticHooks: ['justice', 'freedom', 'community', 'traditional', 'progressive', 'equality', 'fairness', 'rights', 'activism', 'advocacy', 'lgbtq', 'inclusivity'],
+    logicalBridge: 'Moral foundations and social values correlate with political leanings.'
   },
   religious: {
-    keywords: ['religious', 'spiritual', 'faith', 'believe', 'church', 'god'],
-    semanticHooks: ['worship', 'prayer', 'morality', 'tradition', 'community', 'ritual', 'belief', 'values'],
+    keywords: ['religious', 'spiritual', 'faith', 'believe', 'church', 'god', 'religion', 'worship'],
+    semanticHooks: ['prayer', 'morality', 'tradition', 'ritual', 'belief', 'values', 'community', 'faith', 'spiritual', 'sacred'],
     logicalBridge: 'Spiritual practices and moral values imply religiosity.'
   },
   social: {
     keywords: ['ally', 'member', 'community', 'support', 'friend', 'belong'],
-    semanticHooks: ['lgbtq', 'advocacy', 'volunteering', 'inclusivity', 'solidarity', 'activism', 'supportive'],
+    semanticHooks: ['lgbtq', 'advocacy', 'inclusivity', 'solidarity', 'activism', 'supportive', 'volunteering', 'helping'],
     logicalBridge: 'Activism and advocacy imply community alignment.'
+  },
+  lifestyle: {
+    keywords: ['routine', 'habit', 'daily', 'weekend', 'leisure', 'hobbies', 'lifestyle'],
+    semanticHooks: ['outdoors', 'nature', 'fitness', 'reading', 'socializing', 'solitude', 'travel', 'exercise', 'relaxation'],
+    logicalBridge: 'General activity preferences imply specific destination likes.'
   }
 };
 
@@ -89,7 +114,7 @@ function isInferenceQuestion(query: string): boolean {
 
 // Step-back prompting: identify category from specific terms
 // Categories checked in priority order (more specific first)
-const CATEGORY_PRIORITY = ['political', 'religious', 'social', 'career', 'preference'];
+const CATEGORY_PRIORITY = ['political', 'religious', 'social', 'lifestyle', 'career', 'preference'];
 
 function stepBack(query: string): { category: string; subject: string; hooks: string[] } | null {
   const lowerQuery = query.toLowerCase();
