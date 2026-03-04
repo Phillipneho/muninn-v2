@@ -4,8 +4,22 @@ import OpenAI from 'openai';
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY
 });
-// Enhanced extraction prompt with coreference resolution
+// Enhanced extraction prompt with coreference resolution and identity detection
 const EXTRACTION_PROMPT_V2 = `You are a precise fact extraction system. Extract atomic facts, entities, and events from conversations.
+
+## CRITICAL: IDENTITY & STATE DETECTION (P1)
+You MUST capture declarative statements about identity, relationships, and permanent states. These are NOT actions - they are facts about WHO someone IS.
+
+Examples:
+- "I am a transgender woman" → fact: {subject: "Caroline", predicate: "identity", object: "transgender woman", confidence: 1.0}
+- "She identifies as non-binary" → fact: {subject: "She", predicate: "gender_identity", object: "non-binary"}
+- "I'm single" → fact: {subject: "I", predicate: "relationship_status", object: "single"}
+- "I'm from Sweden" → fact: {subject: "I", predicate: "from", object: "Sweden"}
+- "My name is Caroline" → fact: {subject: "I", predicate: "name", object: "Caroline"}
+- "I have a dog named Max" → fact: {subject: "I", predicate: "has_pet", object: "Max"}
+- "I've been married for 5 years" → fact: {subject: "I", predicate: "marriage_duration", object: "5 years"}
+
+DO NOT skip these. They are foundational identity facts, not events or actions.
 
 ## COREFERENCE RESOLUTION
 Before extracting facts, resolve all pronouns and references to their antecedents:
@@ -21,6 +35,8 @@ Convert relative dates to ISO dates based on the session date:
 - "two days ago" → session_date - 2 days
 - "last month" → session_date - 1 month
 - "recently" → session_date (approximate)
+- "The Sunday before May 25" → Calculate: find Sunday before the given date
+- "The week before 14 August 2023" → week of Aug 7-13, 2023
 
 ## FACT EXTRACTION RULES
 1. Each fact must be ATOMIC - one subject, one predicate, one object
@@ -58,6 +74,22 @@ OUTPUT FORMAT (JSON):
       "validFrom": "2023-05-07",
       "confidence": 1.0,
       "evidence": "I went to the LGBTQ support group yesterday"
+    },
+    {
+      "subject": "Caroline",
+      "predicate": "identity",
+      "object": "transgender woman",
+      "objectType": "literal",
+      "confidence": 1.0,
+      "evidence": "I am a transgender woman"
+    },
+    {
+      "subject": "Caroline",
+      "predicate": "relationship_status",
+      "object": "single",
+      "objectType": "literal",
+      "confidence": 1.0,
+      "evidence": "I'm single"
     }
   ],
   "entities": [

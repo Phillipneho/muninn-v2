@@ -156,26 +156,37 @@ export class Muninn {
     }
     
     // 5. Create events (from explicit extraction - only if old_value exists)
+    // AND convert event-only extractions to facts (activities without state change)
     for (const event of extraction.events) {
-      // Skip events without old_value (not a state change)
-      if (!event.oldValue || event.oldValue.toLowerCase() === 'null') {
-        continue;
-      }
-      
       const entityId = entityIdMap.get(event.entity.toLowerCase());
       if (!entityId) continue;
       
-      this.db.createEvent({
-        entityId,
-        attribute: event.attribute,
-        oldValue: event.oldValue,
-        newValue: event.newValue,
-        cause: event.cause,
-        occurredAt: event.occurredAt ? new Date(event.occurredAt) : options?.occurredAt || new Date(),
-        sourceEpisodeId: episode.id
-      });
-      
-      eventsCreated++;
+      // If this is a state change (has old_value), create an event
+      if (event.oldValue && event.oldValue.toLowerCase() !== 'null') {
+        this.db.createEvent({
+          entityId,
+          attribute: event.attribute,
+          oldValue: event.oldValue,
+          newValue: event.newValue,
+          cause: event.cause,
+          occurredAt: event.occurredAt ? new Date(event.occurredAt) : options?.occurredAt || new Date(),
+          sourceEpisodeId: episode.id
+        });
+        eventsCreated++;
+      } else {
+        // No old_value = activity, not state change. Create a fact instead.
+        // E.g., "Melanie painted sunrise in 2022" → fact, not event
+        this.db.createFact({
+          subjectEntityId: entityId,
+          predicate: event.attribute || 'did',
+          objectValue: event.newValue,
+          valueType: 'string',
+          confidence: 0.9,
+          validFrom: event.occurredAt ? new Date(event.occurredAt) : undefined,
+          sourceEpisodeId: episode.id
+        });
+        factsCreated++;
+      }
     }
     
     return {

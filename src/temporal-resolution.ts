@@ -166,12 +166,14 @@ export function resolveRelativeDate(
 ): { resolved: string; confidence: number } | null {
   const anchor = new Date(anchorDate);
   
-  // Simple patterns
+  // Extended patterns for LOCOMO-style relative dates
   const patterns: Array<{ regex: RegExp; resolver: (m: RegExpMatchArray) => Date }> = [
+    // "yesterday"
     {
       regex: /yesterday/i,
       resolver: () => new Date(anchor.getTime() - 86400000)
     },
+    // "last Monday/Tuesday/etc"
     {
       regex: /last\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/i,
       resolver: (m) => {
@@ -183,6 +185,7 @@ export function resolveRelativeDate(
         return new Date(anchor.getTime() - diff * 86400000);
       }
     },
+    // "X days/weeks/months/years ago"
     {
       regex: /(\d+)\s+(day|week|month|year)s?\s+ago/i,
       resolver: (m) => {
@@ -196,17 +199,81 @@ export function resolveRelativeDate(
         return d;
       }
     },
+    // "The Sunday before May 25, 2023" - LOCOMO pattern
     {
-      regex: /(?:the\s+)?(week|month)\s+before\s+(\d+\s+\w+\s+\d{4})/i,
+      regex: /(?:the\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+before\s+(\d{1,2})\s+(\w+)\s+(\d{4})/i,
       resolver: (m) => {
-        // "The week before 14 August 2023" -> week of Aug 7-13
-        const refDate = new Date(m[2]);
-        const unit = m[1].toLowerCase();
-        if (unit === 'week') {
-          return new Date(refDate.getTime() - 7 * 86400000);
-        } else {
-          return new Date(refDate.getFullYear(), refDate.getMonth() - 1, refDate.getDate());
-        }
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const targetDay = days.indexOf(m[1].toLowerCase());
+        const dayNum = parseInt(m[2]);
+        const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+        const month = months.indexOf(m[3].toLowerCase());
+        const year = parseInt(m[4]);
+        
+        const refDate = new Date(year, month, dayNum);
+        let currentDay = refDate.getDay();
+        let diff = currentDay - targetDay;
+        if (diff <= 0) diff += 7;
+        return new Date(refDate.getTime() - diff * 86400000);
+      }
+    },
+    // "The week before 14 August 2023" -> start of that week
+    {
+      regex: /(?:the\s+)?week\s+before\s+(\d{1,2})\s+(\w+)\s+(\d{4})/i,
+      resolver: (m) => {
+        const dayNum = parseInt(m[1]);
+        const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+        const month = months.indexOf(m[2].toLowerCase());
+        const year = parseInt(m[3]);
+        
+        const refDate = new Date(year, month, dayNum);
+        // Return Sunday of the week before
+        const dayOfWeek = refDate.getDay();
+        return new Date(refDate.getTime() - (dayOfWeek + 7) * 86400000);
+      }
+    },
+    // "The weekend before X"
+    {
+      regex: /(?:the\s+)?weekend\s+before\s+(\d{1,2})\s+(\w+)\s+(\d{4})/i,
+      resolver: (m) => {
+        const dayNum = parseInt(m[1]);
+        const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+        const month = months.indexOf(m[2].toLowerCase());
+        const year = parseInt(m[3]);
+        
+        const refDate = new Date(year, month, dayNum);
+        // Saturday of the weekend before
+        const dayOfWeek = refDate.getDay();
+        const daysToSaturday = (dayOfWeek + 7 - 6) % 7;
+        return new Date(refDate.getTime() - (daysToSaturday + 7) * 86400000);
+      }
+    },
+    // "The Friday before X"
+    {
+      regex: /(?:the\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\s+before\s+(\d{1,2})\s+(\w+)\s*(\d{4})?/i,
+      resolver: (m) => {
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const targetDay = days.indexOf(m[1].toLowerCase());
+        const dayNum = parseInt(m[2]);
+        const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+        const month = months.indexOf(m[3].toLowerCase());
+        const year = m[4] ? parseInt(m[4]) : anchor.getFullYear();
+        
+        const refDate = new Date(year, month, dayNum);
+        let currentDay = refDate.getDay();
+        let diff = currentDay - targetDay;
+        if (diff <= 0) diff += 7;
+        return new Date(refDate.getTime() - diff * 86400000);
+      }
+    },
+    // Month names with optional year: "May 2023" or "May"
+    {
+      regex: /^(january|february|march|april|may|june|july|august|september|october|november|december)\s*(\d{4})?$/i,
+      resolver: (m) => {
+        const months = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+        const month = months.indexOf(m[1].toLowerCase());
+        const year = m[2] ? parseInt(m[2]) : anchor.getFullYear();
+        return new Date(year, month, 1);
       }
     }
   ];
