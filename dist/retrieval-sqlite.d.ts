@@ -12,6 +12,14 @@ export declare class Retriever {
      */
     private extractEntitiesSimple;
     /**
+     * Extract temporal bounds from query (e.g., "in August", "last week")
+     */
+    private extractTemporalBounds;
+    /**
+     * Filter facts by temporal bounds
+     */
+    private filterByTemporalBounds;
+    /**
      * Parse temporal intent from query
      */
     private parseTemporalIntent;

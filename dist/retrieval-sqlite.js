@@ -11,17 +11,21 @@ export class Retriever {
     async recall(query, options) {
         // 1. Extract entities from query
         const entities = this.extractEntitiesSimple(query);
-        console.log('[DEBUG] Extracted entities:', entities);
-        // 2. Parse temporal intent
+        // 2. Parse temporal intent (for filtering)
         const temporalIntent = this.parseTemporalIntent(query);
-        console.log('[DEBUG] Temporal intent:', temporalIntent);
-        // 3. Try structured state query (by entity, ignore predicate mismatch)
+        // 3. Extract temporal bounds from query
+        const temporalBounds = this.extractTemporalBounds(query);
+        // 4. Try structured state query (by entity, with temporal filter)
         if (entities.length > 0) {
-            const facts = this.db.getCurrentFacts(entities[0]); // Get all facts for entity
+            const facts = this.db.getCurrentFacts(entities[0]);
             if (facts.length > 0) {
+                // Apply temporal filter if query has time bounds
+                const filteredFacts = temporalBounds
+                    ? this.filterByTemporalBounds(facts, temporalBounds)
+                    : facts;
                 return {
                     source: 'structured',
-                    facts: facts.map(f => this.mapFact(f))
+                    facts: filteredFacts.map(f => this.mapFact(f))
                 };
             }
         }
@@ -70,6 +74,70 @@ export class Retriever {
         const all = [...capitalized, ...quoted];
         const filtered = all.filter(word => !questionWords.includes(word.toLowerCase()));
         return [...new Set(filtered)];
+    }
+    /**
+     * Extract temporal bounds from query (e.g., "in August", "last week")
+     */
+    extractTemporalBounds(query) {
+        const lower = query.toLowerCase();
+        // Named months
+        const months = ['january', 'february', 'march', 'april', 'may', 'june',
+            'july', 'august', 'september', 'october', 'november', 'december'];
+        for (let i = 0; i < months.length; i++) {
+            if (lower.includes(months[i])) {
+                // Check if year is specified
+                const yearMatch = lower.match(/\b(20\d{2})\b/);
+                if (yearMatch) {
+                    const year = parseInt(yearMatch[1]);
+                    const start = new Date(year, i, 1);
+                    const end = new Date(year, i + 1, 0, 23, 59, 59);
+                    return { start, end };
+                }
+                // Month only - match any year
+                return { monthOnly: i };
+            }
+        }
+        // "last week", "last month"
+        if (lower.includes('last week')) {
+            const now = new Date();
+            const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            return { start, end: now };
+        }
+        if (lower.includes('last month')) {
+            const now = new Date();
+            const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+            return { start, end };
+        }
+        // Year references
+        const yearMatch = lower.match(/\b(20\d{2})\b/);
+        if (yearMatch) {
+            const year = parseInt(yearMatch[1]);
+            const start = new Date(year, 0, 1);
+            const end = new Date(year, 11, 31, 23, 59, 59);
+            return { start, end };
+        }
+        return null;
+    }
+    /**
+     * Filter facts by temporal bounds
+     */
+    filterByTemporalBounds(facts, bounds) {
+        return facts.filter(fact => {
+            const factDate = fact.valid_from ? new Date(fact.valid_from) : null;
+            if (!factDate)
+                return true; // Keep facts without dates
+            // Month-only filter (match any year)
+            if (bounds.monthOnly !== undefined) {
+                return factDate.getMonth() === bounds.monthOnly;
+            }
+            // Date range filter
+            if (bounds.start && factDate < bounds.start)
+                return false;
+            if (bounds.end && factDate > bounds.end)
+                return false;
+            return true;
+        });
     }
     /**
      * Parse temporal intent from query
