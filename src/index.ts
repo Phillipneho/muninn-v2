@@ -1,14 +1,14 @@
 // Muninn v2 - Memory as Evolving Reality
 // Main entry point
 
-export { MuninnDatabase } from './database.js';
+export { MuninnDatabase } from './database-sqlite.js';
 export { FactExtractor, resolveEntities, detectContradictions } from './extraction.js';
-export { Retriever } from './retrieval.js';
+export { Retriever } from './retrieval-sqlite.js';
 export * from './types.js';
 
-import { MuninnDatabase } from './database.js';
+import { MuninnDatabase } from './database-sqlite.js';
 import { FactExtractor, resolveEntities, detectContradictions } from './extraction.js';
-import { Retriever } from './retrieval.js';
+import { Retriever } from './retrieval-sqlite.js';
 import type { Episode, ExtractionResult, Fact, Entity } from './types.js';
 
 /**
@@ -34,8 +34,8 @@ export class Muninn {
   private extractor: FactExtractor;
   private retriever: Retriever;
   
-  constructor(connectionString?: string) {
-    this.db = new MuninnDatabase(connectionString);
+  constructor(dbPath?: string) {
+    this.db = new MuninnDatabase(dbPath);
     this.extractor = new FactExtractor();
     this.retriever = new Retriever(this.db);
   }
@@ -60,7 +60,7 @@ export class Muninn {
     contradictions: number;
   }> {
     // 1. Create episode (raw storage)
-    const episode = await this.db.createEpisode({
+    const episode = this.db.createEpisode({
       content,
       source: options?.source || 'conversation',
       actor: options?.actor,
@@ -73,7 +73,7 @@ export class Muninn {
     // 3. Create entities
     const entityIdMap = new Map<string, string>();
     for (const entity of extraction.entities) {
-      const created = await this.db.findOrCreateEntity(entity.name, entity.type);
+      const created = this.db.findOrCreateEntity(entity.name, entity.type);
       entityIdMap.set(entity.name.toLowerCase(), created.id);
     }
     
@@ -89,7 +89,7 @@ export class Muninn {
       }
       
       // Check for contradictions
-      const existingFacts = await this.db.getCurrentFacts(fact.subject);
+      const existingFacts = this.db.getCurrentFacts(fact.subject);
       const conflicting = detectContradictions(fact, existingFacts.map(f => ({
         subject: f.subject,
         predicate: f.predicate,
@@ -116,12 +116,12 @@ export class Muninn {
       }
       
       // Create fact
-      await this.db.createFact({
+      this.db.createFact({
         subjectEntityId: subjectId,
         predicate: fact.predicate,
         objectEntityId,
         objectValue: fact.objectType === 'literal' ? fact.object : undefined,
-        valueType: fact.objectType,
+        valueType: fact.objectType === 'entity' ? 'entity' : 'string',
         confidence: fact.confidence,
         sourceEpisodeId: episode.id,
         validFrom: fact.validFrom ? new Date(fact.validFrom) : undefined,
@@ -137,7 +137,7 @@ export class Muninn {
       const entityId = entityIdMap.get(event.entity.toLowerCase());
       if (!entityId) continue;
       
-      await this.db.createEvent({
+      this.db.createEvent({
         entityId,
         attribute: event.attribute,
         oldValue: event.oldValue,
@@ -195,7 +195,7 @@ export class Muninn {
   /**
    * Close database connection
    */
-  async close() {
-    await this.db.close();
+  close() {
+    this.db.close();
   }
 }
