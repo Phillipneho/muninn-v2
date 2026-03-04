@@ -7,6 +7,12 @@ const openai = new OpenAI({
 // Enhanced extraction prompt with coreference resolution and identity detection
 const EXTRACTION_PROMPT_V2 = `You are a precise fact extraction system. Extract atomic facts, entities, and events from conversations.
 
+## CRITICAL: EXTRACT FACTS FOR ALL SPEAKERS
+Do NOT focus only on the primary speaker. Extract facts for EVERY person mentioned:
+- If Caroline talks about Melanie's painting, extract facts about Melanie
+- If Melanie mentions her kids, extract facts about Melanie
+- Every speaker's facts are EQUALLY important
+
 ## CRITICAL: IDENTITY & STATE DETECTION (P1)
 You MUST capture declarative statements about identity, relationships, and permanent states. These are NOT actions - they are facts about WHO someone IS.
 
