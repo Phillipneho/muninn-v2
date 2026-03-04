@@ -1,14 +1,37 @@
-import type { RecallOptions, RecallResult } from './types.js';
-import { MuninnDatabase } from './database.js';
+import { MuninnDatabase } from './database-sqlite.js';
+import type { RecallOptions, RecallResult, Fact, Event } from './types.js';
 export declare class Retriever {
     private db;
     constructor(db: MuninnDatabase);
     /**
      * Main retrieval function - implements priority order
+     * 1. Structured state (facts)
+     * 2. Graph traversal (relationships)
+     * 3. Temporal reasoning (events)
+     * 4. Semantic fallback (embeddings)
      */
     recall(query: string, options?: RecallOptions): Promise<RecallResult>;
     /**
-     * Extract entities from query using simple patterns + LLM
+     * Multi-hop query: Find path from entity A to entity B
+     */
+    findPath(fromEntity: string, toEntity: string, maxDepth?: number): Promise<{
+        found: boolean;
+        path: Array<{
+            entity: string;
+            relationship: string;
+            relatedEntity: string;
+        }>;
+    }>;
+    /**
+     * Get all facts about an entity
+     */
+    getEntityFacts(entityName: string): Fact[];
+    /**
+     * Get entity evolution (state changes over time)
+     */
+    getEntityEvolution(entityName: string, from?: Date, to?: Date): Event[];
+    /**
+     * Extract entities from query using LLM
      */
     private extractEntities;
     /**
@@ -24,11 +47,11 @@ export declare class Retriever {
      */
     private generateEmbedding;
     /**
-     * Map database fact to TypeScript type
+     * Map database row to Fact type
      */
     private mapFact;
     /**
-     * Map database event to TypeScript type
+     * Map database Row to Event type
      */
     private mapEvent;
 }

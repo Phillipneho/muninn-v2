@@ -177,16 +177,19 @@ export class MuninnDatabase {
         e1.name as subject,
         f.predicate,
         COALESCE(e2.name, f.object_value) as object,
-        f.valid_from,
+        f.object_value,
+        f.object_entity_id,
         f.confidence,
+        f.valid_from,
         f.evidence,
-        ep.source
+        f.id,
+        f.subject_entity_id,
+        f.value_type
       FROM facts f
       JOIN entities e1 ON f.subject_entity_id = e1.id
       LEFT JOIN entities e2 ON f.object_entity_id = e2.id
-      LEFT JOIN episodes ep ON f.source_episode_id = ep.id
       WHERE 
-        e1.name = ?
+        e1.name = ? COLLATE NOCASE
         AND f.invalidated_at IS NULL
         AND (f.valid_until IS NULL OR datetime(f.valid_until) > datetime('now'))
         ${predicate ? 'AND f.predicate = ?' : ''}
