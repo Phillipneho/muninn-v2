@@ -26,7 +26,12 @@ export class Retriever {
     
     // 4. Try structured state query (by entity, with temporal filter)
     if (entities.length > 0) {
-      const facts = this.db.getCurrentFacts(entities[0]);
+      // Resolve entity by name or alias
+      const entityName = entities[0];
+      const resolved = this.db.resolveEntity(entityName);
+      const canonicalName = resolved?.name || entityName;
+      
+      const facts = this.db.getCurrentFacts(canonicalName);
       if (facts.length > 0) {
         // Apply temporal filter if query has time bounds
         const filteredFacts = temporalBounds 

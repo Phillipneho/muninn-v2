@@ -99,6 +99,19 @@ export class MuninnDatabase {
         UNIQUE(episode_id, entity_id)
       );
       
+      CREATE TABLE IF NOT EXISTS entity_aliases (
+        id TEXT PRIMARY KEY,
+        entity_id TEXT NOT NULL REFERENCES entities(id),
+        alias TEXT NOT NULL,
+        source TEXT DEFAULT 'extracted',
+        confidence REAL DEFAULT 0.5,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(entity_id, alias)
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_aliases_entity ON entity_aliases(entity_id);
+      CREATE INDEX IF NOT EXISTS idx_aliases_alias ON entity_aliases(alias COLLATE NOCASE);
+      
       CREATE INDEX IF NOT EXISTS idx_facts_subject ON facts(subject_entity_id);
       CREATE INDEX IF NOT EXISTS idx_facts_predicate ON facts(predicate);
       CREATE INDEX IF NOT EXISTS idx_events_entity ON events(entity_id);
@@ -138,6 +151,64 @@ export class MuninnDatabase {
         if (existing)
             return existing;
         return this.createEntity({ name, type: type, summary });
+    }
+    // ============================================
+    // ENTITY ALIAS OPERATIONS
+    // ============================================
+    addAlias(entityId, alias, source = 'extracted', confidence = 0.5) {
+        const id = randomUUID();
+        const now = new Date().toISOString();
+        const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO entity_aliases (id, entity_id, alias, source, confidence, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+        stmt.run(id, entityId, alias.toLowerCase(), source, confidence, now);
+    }
+    findEntityByAlias(alias) {
+        const stmt = this.db.prepare(`
+      SELECT entity_id, alias, confidence
+      FROM entity_aliases
+      WHERE alias = ? COLLATE NOCASE
+      ORDER BY confidence DESC
+      LIMIT 1
+    `);
+        const result = stmt.get(alias.toLowerCase());
+        if (!result)
+            return null;
+        // Map snake_case to camelCase
+        return {
+            entityId: result.entity_id,
+            alias: result.alias,
+            confidence: result.confidence
+        };
+    }
+    getAliases(entityId) {
+        const stmt = this.db.prepare(`
+      SELECT alias, source, confidence
+      FROM entity_aliases
+      WHERE entity_id = ?
+      ORDER BY confidence DESC
+    `);
+        const results = stmt.all(entityId);
+        // Map snake_case to camelCase if needed
+        return results.map(r => ({
+            alias: r.alias,
+            source: r.source,
+            confidence: r.confidence
+        }));
+    }
+    resolveEntity(nameOrAlias, type) {
+        // 1. Exact match
+        const exact = this.findEntity(nameOrAlias, type);
+        if (exact)
+            return exact;
+        // 2. Alias match
+        const aliasMatch = this.findEntityByAlias(nameOrAlias);
+        if (aliasMatch) {
+            const stmt = this.db.prepare('SELECT * FROM entities WHERE id = ?');
+            return stmt.get(aliasMatch.entityId);
+        }
+        return null;
     }
     // ============================================
     // EPISODE OPERATIONS

@@ -6,6 +6,18 @@ export declare class MuninnDatabase {
     createEntity(entity: Omit<Entity, 'id' | 'createdAt' | 'updatedAt'>): Entity;
     findEntity(name: string, type?: string): Entity | null;
     findOrCreateEntity(name: string, type: string, summary?: string): Entity;
+    addAlias(entityId: string, alias: string, source?: string, confidence?: number): void;
+    findEntityByAlias(alias: string): {
+        entityId: string;
+        alias: string;
+        confidence: number;
+    } | null;
+    getAliases(entityId: string): Array<{
+        alias: string;
+        source: string;
+        confidence: number;
+    }>;
+    resolveEntity(nameOrAlias: string, type?: string): Entity | null;
     createEpisode(episode: Omit<Episode, 'id' | 'ingestedAt'>): Episode;
     createFact(fact: Omit<Fact, 'id' | 'createdAt'>): Fact;
     getCurrentFacts(entityName: string, predicate?: string): any[];

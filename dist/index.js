@@ -48,11 +48,16 @@ export class Muninn {
         });
         // 2. Extract facts, entities, events
         const extraction = await this.extractor.extract(content, options?.sessionDate);
-        // 3. Create entities
+        // 3. Create entities (with alias resolution)
         const entityIdMap = new Map();
         for (const entity of extraction.entities) {
-            const created = this.db.findOrCreateEntity(entity.name, entity.type);
-            entityIdMap.set(entity.name.toLowerCase(), created.id);
+            // Try to resolve by name or alias first
+            let resolved = this.db.resolveEntity(entity.name, entity.type);
+            if (!resolved) {
+                // Create new entity if no match
+                resolved = this.db.createEntity({ name: entity.name, type: entity.type });
+            }
+            entityIdMap.set(entity.name.toLowerCase(), resolved.id);
         }
         // 4. Create facts
         let factsCreated = 0;
