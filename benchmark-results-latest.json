@@ -1,0 +1,32 @@
+{
+  "timestamp": "2026-03-05T07:54:08.638Z",
+  "totalQuestions": 1986,
+  "scorableQuestions": 1542,
+  "skipped": 444,
+  "questionsScored": 1542,
+  "correct": 723,
+  "accuracy": 46.9,
+  "categories": {
+    "1": {
+      "correct": 184,
+      "total": 282
+    },
+    "2": {
+      "correct": 45,
+      "total": 321
+    },
+    "3": {
+      "correct": 61,
+      "total": 96
+    },
+    "4": {
+      "correct": 431,
+      "total": 841
+    },
+    "5": {
+      "correct": 2,
+      "total": 2
+    }
+  },
+  "duration": "155.6"
+}
