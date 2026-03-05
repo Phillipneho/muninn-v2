@@ -64,7 +64,20 @@ async function runQuickBenchmark() {
   
   for (const qa of qaList) {
     const question = qa.question;
-    const expected = Array.isArray(qa.answer) ? qa.answer.join(' ') : String(qa.answer || '');
+    
+    // Defensive answer handling
+    const expected = (() => {
+      if (qa.answer === null || qa.answer === undefined) return '';
+      if (Array.isArray(qa.answer)) return qa.answer.join(' ');
+      if (typeof qa.answer === 'number') return String(qa.answer);
+      return String(qa.answer);
+    })();
+    
+    // Skip questions with no ground truth
+    if (!expected) {
+      continue;
+    }
+    
     const category = qa.category;
     
     const result = await muninn.recall(question);

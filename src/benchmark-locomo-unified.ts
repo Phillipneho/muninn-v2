@@ -34,6 +34,7 @@ async function runBenchmark() {
   
   let totalCorrect = 0;
   let totalQuestions = 0;
+  let skippedQuestions = 0;
   const startTime = Date.now();
   
   for (let i = 0; i < dataset.length; i++) {
@@ -71,10 +72,26 @@ async function runBenchmark() {
     const qaList = conv.qa;
     console.log(`❓ Testing ${qaList.length} questions`);
     
+    let skippedQuestions = 0;
+    
     for (let j = 0; j < qaList.length; j++) {
       const qa = qaList[j];
       const question = qa.question;
-      const expected = Array.isArray(qa.answer) ? qa.answer.join(' ') : String(qa.answer || '');
+      
+      // Defensive answer handling (Ernie's Priority 1)
+      const expected = (() => {
+        if (qa.answer === null || qa.answer === undefined) return '';
+        if (Array.isArray(qa.answer)) return qa.answer.join(' ');
+        if (typeof qa.answer === 'number') return String(qa.answer);
+        return String(qa.answer);
+      })();
+      
+      // Skip questions with no ground truth (Ernie's Priority 2)
+      if (!expected) {
+        skippedQuestions++;
+        continue; // Skip, don't score
+      }
+      
       const category = qa.category;
       
       // Retrieve observations
@@ -92,6 +109,11 @@ async function runBenchmark() {
       // Score
       const passed = scoreAnswer(answer, expected);
       
+      // Ensure category exists
+      if (!categoryStats[category]) {
+        categoryStats[category] = { correct: 0, total: 0 };
+      }
+      
       categoryStats[category].total++;
       totalQuestions++;
       
@@ -107,9 +129,12 @@ async function runBenchmark() {
     }
     
     const convDuration = ((Date.now() - convStart) / 1000 / 60).toFixed(1);
-    const runningAccuracy = ((totalCorrect / totalQuestions) * 100).toFixed(1);
+    const runningAccuracy = totalQuestions > 0 ? ((totalCorrect / totalQuestions) * 100).toFixed(1) : '0.0';
     console.log(`\n   Conversation duration: ${convDuration} min`);
     console.log(`   Running accuracy: ${runningAccuracy}% (${totalCorrect}/${totalQuestions})`);
+    if (skippedQuestions > 0) {
+      console.log(`   Skipped questions (no ground truth): ${skippedQuestions}`);
+    }
     
     // Progress save every conversation
     const stats = muninn.getStats();
@@ -122,12 +147,14 @@ async function runBenchmark() {
   console.log('\n=== Final Results ===');
   console.log(`Total Questions: ${totalQuestions}`);
   console.log(`Correct: ${totalCorrect}`);
-  console.log(`Accuracy: ${((totalCorrect / totalQuestions) * 100).toFixed(1)}%`);
-  console.log(`Duration: ${totalDuration} minutes\n`);
+  const accuracy = totalQuestions > 0 ? ((totalCorrect / totalQuestions) * 100).toFixed(1) : '0.0';
+  console.log(`Accuracy: ${accuracy}%`);
+  console.log(`Duration: ${totalDuration} minutes`);
+  console.log(`Skipped (no ground truth): ${skippedQuestions}\n`);
   
   console.log('By Category:');
   for (let i = 1; i <= 4; i++) {
-    const cat = categoryStats[i];
+    const cat = categoryStats[i] || { correct: 0, total: 0 };
     const pct = cat.total > 0 ? ((cat.correct / cat.total) * 100).toFixed(1) : '0.0';
     console.log(`  Category ${i} (${CATEGORY_NAMES[i]}): ${cat.correct}/${cat.total} (${pct}%)`);
   }

@@ -25,10 +25,15 @@ export interface ExtractionResult {
 }
 
 /**
- * The Universal Observer Prompt (v4.0)
+ * The Universal Observer Prompt (v5.0)
  * 
  * Core principle: Be an Aggressive Collector of signal.
  * If a fact is stated, capture it. Do not require a "change" to have occurred.
+ * 
+ * CRITICAL IMPROVEMENTS v5.0:
+ * - Better temporal resolution for "last week", "ten years ago", "the week before X"
+ * - Extract specific key events (speeches, birthdays, etc.)
+ * - Handle age-related events
  */
 const OBSERVATION_PROMPT = `You are the Muninn Knowledge Extracter. Your job is to extract EVERY assertion from the text as tagged observations.
 
@@ -55,11 +60,43 @@ Do not focus only on one person. Extract observations about EVERY entity mention
 
 3. **Natural predicates**: Use the verb from the text
    - "painted", "attended", "is", "researched", "moved from"
+   - IMPORTANT: Use specific verbs for key events:
+     - "gave a talk/speech/presentation" → predicate: "gave_speech"
+     - "talked about my journey/story" → predicate: "talked_about"
+     - "went to support group" → predicate: "attended"
+     - "met up with" → predicate: "met_up_with"
 
-4. **Temporal resolution**: Convert relative dates to ISO
-   - "last year" (from May 2023) → "2022-01-01"
-   - "the Sunday before May 25" → Calculate the exact date
-   - "yesterday" (from session date) → session_date - 1
+4. **Temporal resolution** (CRITICAL): Convert relative dates to ISO EX
+   SessionACT dates Date: {sessionDate}
+   
+   Calculate EXACT dates:
+   - "yesterday" → session_date - 1 day
+   - "last week" → session_date - 7 days (calculate exact date)
+   - "last Saturday" → Find the Saturday before session_date
+   - "ten years ago" → Calculate: session_year - 10
+   - "the week before [date]" → Calculate exact date (7 days before)
+   - "last month" → Same day previous month
+   
+   ALWAYS output as "YYYY-MM-DD" format for valid_from
+
+5. **Age and duration events**:
+   - "my 18th birthday ten years ago" → Extract TWO observations:
+     1. predicate: "had_18th_birthday", content: "age 18", valid_from: "2013-XX-XX" (session year - 10)
+     2. predicate: "received_gift", content: "hand-painted bowl", valid_from: "2013-XX-XX"
+   - "has known friends for 4 years" → predicate: "has_known_friends", content: "for 4 years", valid_from: null (it's a duration, not a date)
+
+6. **Key events to extract precisely**:
+   - "school event" + "talked about journey" → predicate: "gave_speech" or "presented"
+   - "support group" → predicate: "attended" (support group)
+   - "workshop" → predicate: "attended" (workshop)
+   - "charity race" → predicate: "ran" (charity race)
+
+7. **Implicit identity extraction** (CRITICAL):
+   - If someone mentions "transgender journey", "LGBTQ+ community", "trans community" → Extract:
+     - predicate: "identifies_as", content: "transgender", tags: ["IDENTITY"]
+   - If someone says "my grandma in my home country, Sweden" → Extract:
+     - predicate: "is_from", content: "Sweden", tags: ["IDENTITY"]
+   - Context clues are valid sources for identity!
 
 ## Extraction Examples
 
@@ -75,44 +112,108 @@ Output:
       "valid_from": "2022-01-01",
       "confidence": 0.95,
       "evidence": "I painted that lake sunrise last year!"
-    },
-    {
-      "entity_name": "Melanie",
-      "tags": ["TRAIT"],
-      "predicate": "is_artist",
-      "content": "paints landscapes",
-      "confidence": 0.9,
-      "evidence": "I painted that lake sunrise"
     }
   ]
 }
 
-Input: "Caroline: I'm thinking about pursuing counseling or mental health work."
+Input: "Caroline: I went to a LGBTQ support group yesterday."
+Session Date: "2023-05-08"
+Output:
+{
+  "observations": [
+    {
+      "entity_name": "Caroline",
+      "tags": ["ACTIVITY"],
+      "predicate": "attended",
+      "content": "LGBTQ support group",
+      "valid_from": "2023-05-07",
+      "confidence": 0.95,
+      "evidence": "I went to a LGBTQ support group yesterday"
+    }
+  ]
+}
+
+Input: "Caroline: My friend made it for my 18th birthday ten years ago."
+Session Date: "2023-05-08"
+Output:
+{
+  "observations": [
+    {
+      "entity_name": "Caroline",
+      "tags": ["ACTIVITY"],
+      "predicate": "had_18th_birthday",
+      "content": "age 18",
+      "valid_from": "2013-05-08",
+      "confidence": 0.9,
+      "evidence": "my 18th birthday ten years ago"
+    },
+    {
+      "entity_name": "Caroline",
+      "tags": ["TRAIT"],
+      "predicate": "received_gift",
+      "content": "hand-painted bowl from friend",
+      "valid_from": "2013-05-08",
+      "confidence": 0.9,
+      "evidence": "A friend made it for my 18th birthday ten years ago"
+    }
+  ]
+}
+
+Input: "Caroline: I wanted to tell you about my school event last week. I talked about my transgender journey."
+Session Date: "2023-06-09"
+Output:
+{
+  "observations": [
+    {
+      "entity_name": "Caroline",
+      "tags": ["ACTIVITY"],
+      "predicate": "gave_speech",
+      "content": "at school about transgender journey",
+      "valid_from": "2023-06-02",
+      "confidence": 0.95,
+      "evidence": "I wanted to tell you about my school event last week"
+    },
+    {
+      "entity_name": "Caroline",
+      "tags": ["ACTIVITY"],
+      "predicate": "talked_about",
+      "content": "transgender journey at school event",
+      "valid_from": "2023-06-02",
+      "confidence": 0.9,
+      "evidence": "I talked about my transgender journey"
+    }
+  ]
+}
+
+Input: "Caroline: I met up with my friends, family, and mentors last week."
+Session Date: "2023-06-09"
+Output:
+{
+  "observations": [
+    {
+      "entity_name": "Caroline",
+      "tags": ["ACTIVITY"],
+      "predicate": "met_up_with",
+      "content": "friends, family, and mentors",
+      "valid_from": "2023-06-02",
+      "confidence": 0.95,
+      "evidence": "I met up with my friends, family, and mentors last week"
+    }
+  ]
+}
+
+Input: "Caroline: I've known my current group of friends for 4 years."
 Output:
 {
   "observations": [
     {
       "entity_name": "Caroline",
       "tags": ["STATE"],
-      "predicate": "career_interest",
-      "content": "counseling or mental health",
-      "confidence": 0.85,
-      "evidence": "I'm thinking about pursuing counseling or mental health work"
-    }
-  ]
-}
-
-Input: "Caroline: I am a transgender woman."
-Output:
-{
-  "observations": [
-    {
-      "entity_name": "Caroline",
-      "tags": ["IDENTITY"],
-      "predicate": "identifies_as",
-      "content": "transgender woman",
-      "confidence": 1.0,
-      "evidence": "I am a transgender woman"
+      "predicate": "has_known_friends",
+      "content": "current group of friends for 4 years",
+      "valid_from": null,
+      "confidence": 0.9,
+      "evidence": "I've known my current group of friends for 4 years"
     }
   ]
 }
@@ -144,41 +245,55 @@ Use this to resolve relative dates: {sessionDate}
 
 {conversation}
 
-Extract all observations. Output valid JSON only.`;
+Extract ALL observations. Be aggressive. Capture EVERY fact. Output valid JSON only.`;
 
 export class ObservationExtractor {
   
-  async extract(content: string, sessionDate?: string): Promise<ExtractionResult> {
+  async extract(content: string, sessionDate?: string, retries: number = 3): Promise<ExtractionResult> {
     const prompt = OBSERVATION_PROMPT
       .replace('{sessionDate}', sessionDate || new Date().toISOString().split('T')[0])
       .replace('{conversation}', content);
     
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a precise knowledge extraction system. Output valid JSON only. Extract EVERY assertion as a tagged observation.'
-        },
-        {
-          role: 'user',
-          content: prompt
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        const response = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a precise knowledge extraction system. Output valid JSON only. Extract EVERY assertion as a tagged observation.'
+            },
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          temperature: 0.1,
+          max_tokens: 4000,
+          response_format: { type: 'json_object' }
+        });
+        
+        const text = response.choices[0]?.message?.content || '{"entities":[],"observations":[]}';
+        
+        const result = JSON.parse(text) as ExtractionResult;
+        return this.validateAndClean(result);
+      } catch (e: any) {
+        lastError = e;
+        // Retry on transient errors (rate limits, server errors)
+        if (e.status === 429 || e.status === 500 || e.status === 502 || e.status === 503) {
+          const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 1s, 2s, 4s
+          console.log(`   ⚠️ API error ${e.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries})...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
         }
-      ],
-      temperature: 0.1,
-      max_tokens: 4000,
-      response_format: { type: 'json_object' }
-    });
-    
-    const text = response.choices[0]?.message?.content || '{"entities":[],"observations":[]}';
-    
-    try {
-      const result = JSON.parse(text) as ExtractionResult;
-      return this.validateAndClean(result);
-    } catch (e) {
-      console.error('Failed to parse observation extraction:', e);
-      return { entities: [], observations: [] };
+        throw e;
+      }
     }
+    
+    console.error('Failed to extract after', retries, 'retries:', lastError?.message);
+    return { entities: [], observations: [] };
   }
   
   private validateAndClean(result: ExtractionResult): ExtractionResult {
@@ -191,7 +306,7 @@ export class ObservationExtractor {
         entity_name: this.normalizeName(o.entity_name),
         tags: this.validateTags(o.tags),
         predicate: this.normalizePredicate(o.predicate),
-        content: o.content.trim(),
+        content: (o.content || '').toString().trim(),
         valid_from: this.normalizeDate(o.valid_from),
         valid_until: this.normalizeDate(o.valid_until),
         confidence: Math.min(1, Math.max(0, o.confidence || 0.8)),

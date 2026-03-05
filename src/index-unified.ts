@@ -10,6 +10,81 @@ import { ObservationExtractor, ExtractionResult } from './observation-extractor.
 import type { RecallOptions, RecallResult } from './types.js';
 
 /**
+ * Parse session date from natural language format
+ * Examples: "1:56 pm on 8 May, 2023", "7:55 pm on 9 June, 2023"
+ */
+function parseSessionDate(dateStr: string): Date | undefined {
+  // Already ISO format
+  if (/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+  
+  // Try natural language parsing
+  // Match patterns like "1:56 pm on 8 May, 2023" or "8 May 2023"
+  const patterns = [
+    /(\d{1,2}):(\d{2})\s*(am|pm)?\s*on\s*(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s]+(\d{4})/i,
+    /(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)[,\s]+(\d{4})/i,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = dateStr.match(pattern);
+    if (match) {
+      let day: number, month: number, year: number;
+      
+      if (match[4]) { // Full format with time
+        const hour = match[1];
+        const minute = match[2];
+        const ampm = match[3]?.toLowerCase();
+        day = parseInt(match[4]);
+        year = parseInt(match[6]);
+        
+        const monthStr = match[5].toLowerCase();
+        const monthMap: Record<string, number> = {
+          'jan': 0, 'january': 0, 'feb': 1, 'february': 1, 'mar': 2, 'march': 2,
+          'apr': 3, 'april': 3, 'may': 4, 'jun': 5, 'june': 5, 'jul': 6, 'july': 6,
+          'aug': 7, 'august': 7, 'sep': 8, 'september': 8, 'oct': 9, 'october': 9,
+          'nov': 10, 'november': 10, 'dec': 11, 'december': 11
+        };
+        month = monthMap[monthStr] ?? 0;
+        
+        let hourNum = parseInt(hour);
+        if (ampm === 'pm' && hourNum < 12) hourNum += 12;
+        if (ampm === 'am' && hourNum === 12) hourNum = 0;
+        
+        const parsed = new Date(year, month, day, hourNum, parseInt(minute));
+        if (!isNaN(parsed.getTime())) return parsed;
+      } else { // Simple format without time
+        day = parseInt(match[1]);
+        year = parseInt(match[3]);
+        
+        const monthStr = match[2].toLowerCase();
+        const monthMap: Record<string, number> = {
+          'jan': 0, 'january': 0, 'feb': 1, 'february': 1, 'mar': 2, 'march': 2,
+          'apr': 3, 'april': 3, 'may': 4, 'jun': 5, 'june': 5, 'jul': 6, 'july': 6,
+          'aug': 7, 'august': 7, 'sep': 8, 'september': 8, 'oct': 9, 'october': 9,
+          'nov': 10, 'november': 10, 'dec': 11, 'december': 11
+        };
+        month = monthMap[monthStr] ?? 0;
+        
+        const parsed = new Date(year, month, day);
+        if (!isNaN(parsed.getTime())) return parsed;
+      }
+    }
+  }
+  
+  // Fallback to Date constructor
+  try {
+    const parsed = new Date(dateStr);
+    if (!isNaN(parsed.getTime())) return parsed;
+  } catch (e) {
+    // Invalid
+  }
+  
+  return undefined;
+}
+
+/**
  * Muninn v2.1 - Unified Memory System
  * 
  * Core principle: Memory is multidimensional signal, not binary events/facts.
@@ -52,25 +127,21 @@ export class Muninn {
     // 1. Create episode
     let occurredAt: Date | undefined = undefined;
     if (options?.sessionDate) {
-      try {
-        const parsed = new Date(options.sessionDate);
-        if (!isNaN(parsed.getTime())) {
-          occurredAt = parsed;
-        }
-      } catch (e) {
-        // Invalid date string, use undefined
-      }
+      occurredAt = parseSessionDate(options.sessionDate);
     }
     
+    // 2. Extract observations using the Universal Observer
+    // Pass normalized session date to the extractor
+    const normalizedSessionDate = occurredAt ? occurredAt.toISOString().split('T')[0] : undefined;
+    const extraction = await this.extractor.extract(content, normalizedSessionDate);
+    
+    // 3. Create episode
     const episode = this.db.createEpisode({
       content,
       source: options?.source || 'conversation',
       actor: options?.actor,
       occurredAt
     });
-    
-    // 2. Extract observations using the Universal Observer
-    const extraction = await this.extractor.extract(content, options?.sessionDate);
     
     // 3. Create entities (with alias resolution)
     const entityIdMap = new Map<string, string>();
