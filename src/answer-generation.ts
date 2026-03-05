@@ -53,16 +53,23 @@ export async function generateAnswer(
     return "I don't have information about that.";
   }
   
-  // Detect temporal intent from query
-  const isTemporalQuery = /\b(when|date|time|year|month|week|day|ago|before|after|last|next|during|in)\b/i.test(query);
+  // Detect query intent - distinguish temporal from location/factual queries
+  const isTemporalQuery = /\b(when|what date|what time|which (year|month|day)|how long ago|how many (years|months|days) ago)\b/i.test(query);
+  const isLocationQuery = /\b(where|from where|to where|which (country|city|place)|moved from|come from)\b/i.test(query);
   
   // Use LLM to synthesize answer
-  const systemPrompt = isTemporalQuery
+  const systemPrompt = isTemporalQuery && !isLocationQuery
     ? `You are a helpful assistant answering questions about events and dates.
 Use ONLY the provided facts. Pay special attention to dates - they are critical.
 Format dates naturally (e.g., "May 7, 2023" not "2023-05-07").
 If the fact mentions a date, include it in your answer.
 If no date is found, say "I don't have that specific date."`
+    : isLocationQuery
+    ? `You are a helpful assistant answering questions about locations and places.
+Use ONLY the provided facts. Look for facts about locations, origins, and places.
+Answer directly and concisely using the facts.
+If facts contain location information, provide it.
+If no location is found, say "I don't have information about that location."`
     : `You are a helpful assistant answering questions based on stored memory facts.
 Answer concisely using ONLY the provided facts.
 If facts don't contain the answer, say "I don't have information about that."

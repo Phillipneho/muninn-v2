@@ -50,11 +50,23 @@ export class Muninn {
     entitiesCreated: number;
   }> {
     // 1. Create episode
+    let occurredAt: Date | undefined = undefined;
+    if (options?.sessionDate) {
+      try {
+        const parsed = new Date(options.sessionDate);
+        if (!isNaN(parsed.getTime())) {
+          occurredAt = parsed;
+        }
+      } catch (e) {
+        // Invalid date string, use undefined
+      }
+    }
+    
     const episode = this.db.createEpisode({
       content,
       source: options?.source || 'conversation',
       actor: options?.actor,
-      occurredAt: options?.sessionDate ? new Date(options.sessionDate) : undefined
+      occurredAt
     });
     
     // 2. Extract observations using the Universal Observer
@@ -128,8 +140,8 @@ export class Muninn {
       return { source: 'semantic', memories: [] };
     }
     
-    // Get weighted observations
-    const observations = this.db.getWeightedObservations(entityName, options?.limit || 20);
+    // Get weighted observations (increase limit to capture more relevant facts)
+    const observations = this.db.getWeightedObservations(entityName, options?.limit || 50);
     
     if (observations.length === 0) {
       return { source: 'semantic', memories: [] };

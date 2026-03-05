@@ -179,7 +179,20 @@ export class ObservationDatabase {
   createObservation(input: CreateObservationInput): Observation {
     const id = uuidv4();
     const now = new Date().toISOString();
-    const observedAt = input.observed_at || now;
+    
+    // Handle date parsing - try to parse, fall back to now
+    let observedAt: string;
+    if (input.observed_at) {
+      try {
+        const parsed = new Date(input.observed_at);
+        observedAt = isNaN(parsed.getTime()) ? now : parsed.toISOString();
+      } catch {
+        observedAt = now;
+      }
+    } else {
+      observedAt = now;
+    }
+    
     const tagsJson = JSON.stringify(input.tags);
     
     this.db.prepare(`
@@ -244,7 +257,9 @@ export class ObservationDatabase {
     const entity = this.resolveEntity(entityName);
     if (!entity) return [];
     
-    const observations = this.getObservationsByEntity(entity.id, { limit });
+    // Get ALL observations for this entity (no limit yet)
+    // We need to sort by weight, not by date
+    const observations = this.getObservationsByEntity(entity.id, { limit: 1000 });
     
     // Calculate weights based on tags
     const WEIGHTS: Record<string, number> = {
@@ -254,10 +269,13 @@ export class ObservationDatabase {
       'ACTIVITY': 1.0
     };
     
-    return observations.map(obs => {
+    const weighted = observations.map(obs => {
       const maxWeight = Math.max(...obs.tags.map(t => WEIGHTS[t] || 1.0));
       return { ...obs, weight: obs.confidence * maxWeight };
     }).sort((a, b) => b.weight - a.weight);
+    
+    // NOW apply the limit
+    return weighted.slice(0, limit);
   }
   
   // Temporal queries
@@ -277,11 +295,20 @@ export class ObservationDatabase {
   // Episode operations
   createEpisode(input: { content: string; source?: string; actor?: string; occurredAt?: Date }): { id: string } {
     const id = uuidv4();
+    // Handle invalid dates gracefully
+    let occurredAtStr: string | null = null;
+    if (input.occurredAt) {
+      try {
+        occurredAtStr = input.occurredAt.toISOString();
+      } catch (e) {
+        // Invalid date, use null
+        occurredAtStr = null;
+      }
+    }
     this.db.prepare(`
       INSERT INTO episodes (id, content, source, actor, occurred_at)
       VALUES (?, ?, ?, ?, ?)
-    `).run(id, input.content, input.source || null, input.actor || null, 
-          input.occurredAt?.toISOString() || null);
+    `).run(id, input.content, input.source || null, input.actor || null, occurredAtStr);
     return { id };
   }
   
