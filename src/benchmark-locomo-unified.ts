@@ -4,7 +4,7 @@
 
 import { Muninn } from './index-unified.js';
 import { generateAnswer } from './answer-generation.js';
-import { readFileSync, existsSync, unlinkSync } from 'fs';
+import { readFileSync, existsSync, unlinkSync, writeFileSync } from 'fs';
 
 const datasetPath = './benchmark/locomo10.json';
 const dataset = JSON.parse(readFileSync(datasetPath, 'utf-8'));
@@ -23,7 +23,28 @@ const CATEGORY_NAMES: Record<number, string> = {
 
 async function runBenchmark() {
   console.log('=== LOCOMO Benchmark - Unified Observations ===\n');
-  console.log(`Testing ${dataset.length} conversations\n`);
+  
+  // Pre-flight: count total questions
+  let totalQuestions = 0;
+  let scorableQuestions = 0;
+  let unanswerableQuestions = 0;
+  
+  for (const conv of dataset) {
+    for (const qa of conv.qa) {
+      totalQuestions++;
+      if (qa.answer === null || qa.answer === undefined) {
+        unanswerableQuestions++;
+      } else {
+        scorableQuestions++;
+      }
+    }
+  }
+  
+  console.log(`Dataset: ${dataset.length} conversations`);
+  console.log(`Total questions: ${totalQuestions}`);
+  console.log(`Scorable questions: ${scorableQuestions}`);
+  console.log(`Unanswerable (Category 5): ${unanswerableQuestions}`);
+  console.log(`Testing: ${scorableQuestions} questions\n`);
   
   const categoryStats: Record<number, { correct: number; total: number }> = {
     1: { correct: 0, total: 0 },
@@ -33,7 +54,7 @@ async function runBenchmark() {
   };
   
   let totalCorrect = 0;
-  let totalQuestions = 0;
+  let totalScored = 0;
   let skippedQuestions = 0;
   const startTime = Date.now();
   
@@ -86,13 +107,13 @@ async function runBenchmark() {
         return String(qa.answer);
       })();
       
-      // Skip questions with no ground truth (Ernie's Priority 2)
+      // Skip questions with no ground truth (Category 5 unanswerable)
       if (!expected) {
         skippedQuestions++;
         continue; // Skip, don't score
       }
       
-      const category = qa.category;
+      const category = qa.category || 0;
       
       // Retrieve observations
       const result = await muninn.recall(question);
@@ -115,25 +136,25 @@ async function runBenchmark() {
       }
       
       categoryStats[category].total++;
-      totalQuestions++;
+      totalScored++;
       
       if (passed) {
         categoryStats[category].correct++;
         totalCorrect++;
-        console.log(`✅ [${CATEGORY_NAMES[category]}] "${question.substring(0, 50)}..."`);
+        console.log(`✅ [${CATEGORY_NAMES[category] || 'cat-'+category}] "${question.substring(0, 50)}..."`);
       } else {
-        console.log(`❌ [${CATEGORY_NAMES[category]}] "${question.substring(0, 50)}..."`);
+        console.log(`❌ [${CATEGORY_NAMES[category] || 'cat-'+category}] "${question.substring(0, 50)}..."`);
         console.log(`   Expected: "${expected.substring(0, 80)}"`);
         console.log(`   Got: "${answer.substring(0, 80)}"`);
       }
     }
     
     const convDuration = ((Date.now() - convStart) / 1000 / 60).toFixed(1);
-    const runningAccuracy = totalQuestions > 0 ? ((totalCorrect / totalQuestions) * 100).toFixed(1) : '0.0';
+    const runningAccuracy = totalScored > 0 ? ((totalCorrect / totalScored) * 100).toFixed(1) : '0.0';
     console.log(`\n   Conversation duration: ${convDuration} min`);
-    console.log(`   Running accuracy: ${runningAccuracy}% (${totalCorrect}/${totalQuestions})`);
+    console.log(`   Running accuracy: ${runningAccuracy}% (${totalCorrect}/${totalScored})`);
     if (skippedQuestions > 0) {
-      console.log(`   Skipped questions (no ground truth): ${skippedQuestions}`);
+      console.log(`   Skipped (no ground truth): ${skippedQuestions}`);
     }
     
     // Progress save every conversation
@@ -146,11 +167,13 @@ async function runBenchmark() {
   // Final results
   console.log('\n=== Final Results ===');
   console.log(`Total Questions: ${totalQuestions}`);
+  console.log(`Scorable Questions: ${scorableQuestions}`);
+  console.log(`Skipped (no ground truth): ${unanswerableQuestions}`);
+  console.log(`Questions Scored: ${totalScored}`);
   console.log(`Correct: ${totalCorrect}`);
-  const accuracy = totalQuestions > 0 ? ((totalCorrect / totalQuestions) * 100).toFixed(1) : '0.0';
+  const accuracy = totalScored > 0 ? ((totalCorrect / totalScored) * 100).toFixed(1) : '0.0';
   console.log(`Accuracy: ${accuracy}%`);
-  console.log(`Duration: ${totalDuration} minutes`);
-  console.log(`Skipped (no ground truth): ${skippedQuestions}\n`);
+  console.log(`Duration: ${totalDuration} minutes\n`);
   
   console.log('By Category:');
   for (let i = 1; i <= 4; i++) {
@@ -165,7 +188,23 @@ async function runBenchmark() {
   console.log('  GPT-4 (conv): 42.3%');
   console.log('  Mem0: 66.9%');
   console.log('  Engram: 79.6%');
-  console.log(`  Muninn v2.1 (unified): ${((totalCorrect / totalQuestions) * 100).toFixed(1)}%`);
+  console.log(`  Muninn v2.1 (unified): ${accuracy}%`);
+  
+  // Save results to file
+  const results = {
+    timestamp: new Date().toISOString(),
+    totalQuestions,
+    scorableQuestions,
+    skipped: unanswerableQuestions,
+    questionsScored: totalScored,
+    correct: totalCorrect,
+    accuracy: parseFloat(accuracy),
+    categories: categoryStats,
+    duration: totalDuration
+  };
+  
+  writeFileSync('./benchmark-results-latest.json', JSON.stringify(results, null, 2));
+  console.log('\nResults saved to benchmark-results-latest.json');
   
   muninn.close();
 }
