@@ -168,6 +168,23 @@ export class ObservationDatabase {
     return entity;
   }
   
+  /**
+   * Fuzzy search for entities by partial name match
+   */
+  searchEntities(name: string, limit: number = 5): Entity[] {
+    const normalizedName = name.toLowerCase().trim();
+    
+    // LIKE search for partial matches
+    const results = this.db.prepare(`
+      SELECT * FROM entities 
+      WHERE LOWER(name) LIKE ? 
+      ORDER BY LENGTH(name) ASC
+      LIMIT ?
+    `).all(`%${normalizedName}%`, limit) as Entity[];
+    
+    return results;
+  }
+  
   createAlias(entityId: string, alias: string): void {
     this.db.prepare(`
       INSERT INTO entity_aliases (id, entity_id, alias)
@@ -211,6 +228,34 @@ export class ObservationDatabase {
     );
     
     return this.getObservation(id)!;
+  }
+  
+  // Temporal validity: Invalidate old facts when new contradicting facts arrive (v5.2)
+  invalidateConflicting(
+    entityId: string,
+    predicate: string,
+    newValue: string,
+    newValidFrom: string
+  ): number {
+    // Find and invalidate conflicting observations
+    // A conflict is: same entity, same predicate, different value, not already invalidated
+    const result = this.db.prepare(`
+      UPDATE observations
+      SET valid_until = ?
+      WHERE entity_id = ?
+        AND predicate = ?
+        AND object_value != ?
+        AND valid_until IS NULL
+        AND (valid_from IS NULL OR valid_from < ?)
+    `).run(
+      newValidFrom,
+      entityId,
+      predicate,
+      newValue,
+      newValidFrom
+    );
+    
+    return result.changes;
   }
   
   getObservation(id: string): Observation | undefined {
@@ -308,9 +353,10 @@ export class ObservationDatabase {
     const entity = this.resolveEntity(entityName);
     if (!entity) return [];
     
-    // Get ALL observations for this entity (no limit yet)
+    // Get ALL observations for this entity (no internal limit)
     // We need to sort by weight, not by date
-    const observations = this.getObservationsByEntity(entity.id, { limit: 1000 });
+    // The caller decides how many to return
+    const observations = this.getObservationsByEntity(entity.id, { limit: 10000 });
     
     // Calculate weights based on tags
     const WEIGHTS: Record<string, number> = {
@@ -427,6 +473,65 @@ export class ObservationDatabase {
   
   close(): void {
     this.db.close();
+  }
+  
+  // Decision traces (v5.2)
+  createTrace(input: {
+    query_text: string;
+    query_intent?: string;
+    activated_nodes?: any[];
+    predicates_fired?: string[];
+    cluster_path?: string[];
+    logic_path?: string;
+    answer?: string;
+    confidence?: number;
+    outcome_reward?: number;
+    agent_id?: string;
+    session_id?: string;
+  }): string {
+    const id = uuidv4();
+    const now = new Date().toISOString();
+    
+    this.db.prepare(`
+      INSERT INTO decision_traces (
+        id, trace_id, query_text, query_intent, activated_nodes, 
+        predicates_fired, cluster_path, logic_path, answer, confidence,
+        outcome_reward, agent_id, session_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      id,
+      input.query_text,
+      input.query_intent || null,
+      input.activated_nodes ? JSON.stringify(input.activated_nodes) : null,
+      input.predicates_fired ? JSON.stringify(input.predicates_fired) : null,
+      input.cluster_path ? JSON.stringify(input.cluster_path) : null,
+      input.logic_path || null,
+      input.answer || null,
+      input.confidence || 0.5,
+      input.outcome_reward || 0,
+      input.agent_id || 'leo',
+      input.session_id || null,
+      now
+    );
+    
+    return id;
+  }
+  
+  getAllTraces(): any[] {
+    try {
+      return this.db.prepare(`SELECT * FROM decision_traces ORDER BY created_at DESC LIMIT 100`).all();
+    } catch (e) {
+      return [];
+    }
+  }
+  
+  updateTraceReward(traceId: string, reward: number): void {
+    this.db.prepare(`
+      UPDATE decision_traces 
+      SET outcome_reward = ?, ground_truth_match = ?
+      WHERE trace_id = ?
+    `).run(reward, reward > 0.7 ? 1 : 0, traceId);
   }
   
   private rowToObservation(row: any): Observation {
