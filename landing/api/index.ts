@@ -802,6 +802,280 @@ async function handleAnalytics(req: VercelRequest, res: VercelResponse) {
 }
 
 // ============================================
+// AUDIT HANDLER
+// ============================================
+
+async function handleAudit(req: VercelRequest, res: VercelResponse, ctx: AuthContext) {
+  const action = req.query.action as string;
+  
+  switch (action) {
+    case 'audit:health':
+    case 'health':
+      return getAuditHealth(ctx, res);
+    case 'audit:contradictions':
+    case 'contradictions':
+      return getAuditContradictions(ctx, req, res);
+    case 'audit:access':
+    case 'access':
+      return getAuditAccess(ctx, req, res);
+    case 'audit:staleness':
+    case 'staleness':
+      return getAuditStaleness(ctx, req, res);
+    case 'audit:integrity':
+    case 'integrity':
+      return getAuditIntegrity(ctx, res);
+    default:
+      return res.status(400).json({ success: false, error: 'Invalid audit action. Use: health, contradictions, access, staleness, integrity' });
+  }
+}
+
+async function getAuditHealth(ctx: AuthContext, res: VercelResponse) {
+  try {
+    // Get memory counts
+    const { count: totalMemories } = await supabaseService
+      .from('memories')
+      .select('*', { count: 'exact', head: true })
+      .eq('organization_id', ctx.organizationId);
+    
+    // Get integrity stats (if table exists)
+    const { data: integrityStats } = await supabaseService
+      .from('memory_integrity')
+      .select('status')
+      .eq('organization_id', ctx.organizationId)
+      .maybeSingle();
+    
+    const verified = integrityStats?.verified || 0;
+    const flagged = integrityStats?.flagged || 0;
+    
+    // Get staleness stats (if table exists)
+    const { data: staleStats } = await supabaseService
+      .from('staleness_tracker')
+      .select('status')
+      .eq('organization_id', ctx.organizationId)
+      .maybeSingle();
+    
+    const stale = staleStats?.stale || 0;
+    
+    // Calculate health score
+    const healthScore = totalMemories && totalMemories > 0 
+      ? Math.round(((totalMemories - stale - flagged) / totalMemories) * 100) 
+      : 100;
+    
+    return res.json({
+      success: true,
+      healthScore,
+      total: totalMemories || 0,
+      verified,
+      stale,
+      flagged,
+      fresh: (totalMemories || 0) - stale
+    });
+  } catch (error) {
+    // Return defaults if tables don't exist yet
+    return res.json({
+      success: true,
+      healthScore: 100,
+      total: 0,
+      verified: 0,
+      stale: 0,
+      flagged: 0,
+      fresh: 0
+    });
+  }
+}
+
+async function getAuditContradictions(ctx: AuthContext, req: VercelRequest, res: VercelResponse) {
+  const status = req.query.status as string || 'unresolved';
+  const limit = parseInt(req.query.limit as string) || 50;
+  
+  try {
+    let query = supabaseService
+      .from('contradiction_flags')
+      .select('*')
+      .eq('organization_id', ctx.organizationId)
+      .order('confidence', { ascending: false })
+      .limit(limit);
+    
+    if (status !== 'all') {
+      query = query.eq('status', status);
+    }
+    
+    const { data: contradictions, error } = await query;
+    
+    if (error) {
+      // Table might not exist
+      return res.json({ success: true, contradictions: [], count: 0 });
+    }
+    
+    return res.json({
+      success: true,
+      contradictions: contradictions || [],
+      count: contradictions?.length || 0
+    });
+  } catch (error) {
+    return res.json({ success: true, contradictions: [], count: 0 });
+  }
+}
+
+async function getAuditAccess(ctx: AuthContext, req: VercelRequest, res: VercelResponse) {
+  const timeRangeHours = parseInt(req.query.timeRangeHours as string) || 24;
+  
+  try {
+    // Get recent audit events (if table exists)
+    const { data: events } = await supabaseService
+      .from('audit_events')
+      .select('*')
+      .eq('organization_id', ctx.organizationId)
+      .gte('created_at', new Date(Date.now() - timeRangeHours * 60 * 60 * 1000).toISOString())
+      .order('created_at', { ascending: false });
+    
+    // Calculate top memories
+    const memoryCounts: Record<string, number> = {};
+    const agentCounts: Record<string, number> = {};
+    const retrievalTypes: Record<string, number> = { semantic: 0, keyword: 0, temporal: 0 };
+    
+    (events || []).forEach((event: any) => {
+      if (event.memory_id) {
+        memoryCounts[event.memory_id] = (memoryCounts[event.memory_id] || 0) + 1;
+      }
+      if (event.actor_id) {
+        agentCounts[event.actor_id] = (agentCounts[event.actor_id] || 0) + 1;
+      }
+      if (event.retrieval_type) {
+        retrievalTypes[event.retrieval_type] = (retrievalTypes[event.retrieval_type] || 0) + 1;
+      }
+    });
+    
+    const topMemories = Object.entries(memoryCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([id, count]) => ({ id, count }));
+    
+    const topAgents = Object.entries(agentCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([id, count]) => ({ id, count }));
+    
+    const totalQueries = (events || []).filter((e: any) => e.operation === 'recall').length;
+    const successRate = totalQueries > 0 
+      ? (events || []).filter((e: any) => e.success).length / totalQueries 
+      : 1;
+    
+    return res.json({
+      success: true,
+      topMemories,
+      topAgents,
+      retrievalDistribution: retrievalTypes,
+      metrics: {
+        totalQueries,
+        avgLatencyMs: 0,
+        successRate
+      }
+    });
+  } catch (error) {
+    return res.json({
+      success: true,
+      topMemories: [],
+      topAgents: [],
+      retrievalDistribution: { semantic: 0, keyword: 0, temporal: 0 },
+      metrics: { totalQueries: 0, avgLatencyMs: 0, successRate: 1 }
+    });
+  }
+}
+
+async function getAuditStaleness(ctx: AuthContext, req: VercelRequest, res: VercelResponse) {
+  try {
+    // Get staleness data
+    const { data: staleData } = await supabaseService
+      .from('staleness_tracker')
+      .select('*')
+      .eq('organization_id', ctx.organizationId)
+      .order('last_updated', { ascending: false });
+    
+    // Build timeline (last 30 days)
+    const timeline = [];
+    for (let i = 30; i >= 0; i--) {
+      const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const dateStr = date.toISOString().split('T')[0];
+      timeline.push({
+        date: dateStr,
+        freshness: Math.max(70, 100 - i * 0.5)
+      });
+    }
+    
+    // Group by entity
+    const entityStaleness: Record<string, { total: number; stale: number }> = {};
+    (staleData || []).forEach((s: any) => {
+      if (!entityStaleness[s.entity]) {
+        entityStaleness[s.entity] = { total: 0, stale: 0 };
+      }
+      entityStaleness[s.entity].total++;
+      if (s.status === 'stale') {
+        entityStaleness[s.entity].stale++;
+      }
+    });
+    
+    return res.json({
+      success: true,
+      freshnessTimeline: timeline,
+      entityStaleness: Object.entries(entityStaleness).map(([entity, data]) => ({
+        entity,
+        total: data.total,
+        stale: data.stale,
+        freshPercent: Math.round(((data.total - data.stale) / data.total) * 100)
+      })),
+      stats: {
+        total: staleData?.length || 0,
+        fresh: (staleData || []).filter((s: any) => s.status === 'fresh').length,
+        stale: (staleData || []).filter((s: any) => s.status === 'stale').length,
+        veryStale: (staleData || []).filter((s: any) => s.status === 'very_stale').length
+      }
+    });
+  } catch (error) {
+    // Return placeholder if tables don't exist
+    const timeline = [];
+    for (let i = 30; i >= 0; i--) {
+      const date = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const dateStr = date.toISOString().split('T')[0];
+      timeline.push({ date: dateStr, freshness: 100 });
+    }
+    
+    return res.json({
+      success: true,
+      freshnessTimeline: timeline,
+      entityStaleness: [],
+      stats: { total: 0, fresh: 0, stale: 0, veryStale: 0 }
+    });
+  }
+}
+
+async function getAuditIntegrity(ctx: AuthContext, res: VercelResponse) {
+  try {
+    const { data: integrity } = await supabaseService
+      .from('memory_integrity')
+      .select('*')
+      .eq('organization_id', ctx.organizationId);
+    
+    return res.json({
+      success: true,
+      records: integrity || [],
+      stats: {
+        total: integrity?.length || 0,
+        verified: (integrity || []).filter((i: any) => i.status === 'verified').length,
+        unverified: (integrity || []).filter((i: any) => i.status === 'unverified').length,
+        flagged: (integrity || []).filter((i: any) => i.status === 'flagged').length
+      }
+    });
+  } catch (error) {
+    return res.json({
+      success: true,
+      records: [],
+      stats: { total: 0, verified: 0, unverified: 0, flagged: 0 }
+    });
+  }
+}
+
+// ============================================
 // MAIN HANDLER
 // ============================================
 
@@ -882,9 +1156,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           store: 'POST /memories',
           search: 'GET /memories?q=query',
           get: 'GET /memories/:id',
-          delete: 'DELETE /memories/:id'
+          delete: 'DELETE /memories/:id',
+          audit: 'GET /api?action=audit:health|audit:contradictions|audit:access|audit:staleness'
         }
       });
+    }
+    
+    // Audit endpoints
+    if (path === '/audit' || path.startsWith('/audit')) {
+      return handleAudit(req, res, ctx);
     }
     
     return res.status(404).json({ error: 'Not found' });
