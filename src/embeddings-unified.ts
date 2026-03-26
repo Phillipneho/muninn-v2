@@ -4,9 +4,14 @@
  * Generates embeddings using:
  * - Local mode: Ollama (nomic-embed-text)
  * - Cloud mode: BYOK or hosted via Muninn API
+ * 
+ * With TurboQuant compression for 5x storage reduction.
  */
 
 import { getMode, isCloud } from './mode.js';
+
+// Simple imports - compression is optional
+type CompressedResult = { embedding: number[]; compressed?: Buffer };
 
 // Local embedding via Ollama
 async function generateLocalEmbedding(text: string): Promise<number[]> {
@@ -70,11 +75,59 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
  * Get embedding dimensions based on mode
  */
 export function getEmbeddingDimensions(): number {
-  // nomic-embed-text: 768
-  // OpenAI text-embedding-3-small: 1536
-  // Cloud mode may use different dimensions
   if (isCloud()) {
     return parseInt(process.env.EMBEDDING_DIMENSIONS || '1536');
   }
   return 768; // nomic-embed-text
+}
+
+/**
+ * Generate embedding with optional compression
+ * 
+ * Usage:
+ *   const { embedding, compressed } = await generateWithCompression(text);
+ *   // Store 'compressed' in Supabase as BLOB
+ */
+export async function generateWithCompression(
+  text: string,
+  bits: number = 3
+): Promise<CompressedResult> {
+  const embedding = await generateEmbedding(text);
+  
+  // Lazy-load compression module (only if needed)
+  const { compress } = await import('./turboquant-simple.js');
+  const compressed = await compress(embedding, bits);
+  
+  return { embedding, compressed };
+}
+
+/**
+ * Compute similarity for search
+ * 
+ * Usage:
+ *   const score = await computeSimilarity(query, storedBuffer);
+ */
+export async function computeSimilarity(
+  query: number[],
+  compressedBuffer: Buffer
+): Promise<number> {
+  const { similarity } = await import('./turboquant-simple.js');
+  return similarity(query, compressedBuffer);
+}
+
+/**
+ * Compression statistics
+ */
+export function getCompressionStats(bits: number = 3): {
+  ratio: number;
+  savings: number;
+} {
+  const dim = getEmbeddingDimensions();
+  const originalBytes = dim * 2;
+  const compressedBytes = 13 + Math.ceil(dim * bits / 8) + Math.ceil(dim / 8);
+  
+  return {
+    ratio: originalBytes / compressedBytes,
+    savings: 1 - (compressedBytes / originalBytes),
+  };
 }
