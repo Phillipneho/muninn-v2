@@ -135,11 +135,9 @@ export async function retrieveWithBudget(
         f.predicate,
         f.object_value,
         f.strength,
-        f.created_at,
-        ep.content AS episode_content
+        f.created_at
       FROM facts f
       JOIN entities e ON f.subject_entity_id = e.id
-      LEFT JOIN episodes ep ON f.source_episode_id = ep.id
       WHERE f.invalidated_at IS NULL
         AND f.valid_until IS NULL
       ORDER BY f.strength DESC, f.created_at DESC
@@ -148,9 +146,6 @@ export async function retrieveWithBudget(
     
     // Format for selection
     memories = rows.map(row => {
-      if (row.episode_content) {
-        return row.episode_content;
-      }
       return `${row.entity_name} ${row.predicate} ${row.object_value || ''}`;
     }).filter(c => c && c.length > 0);
     

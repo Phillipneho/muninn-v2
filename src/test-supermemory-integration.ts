@@ -183,9 +183,10 @@ async function test() {
   
   // Test 8: Formatted Context
   console.log('\n10. Testing formatted context for LLM...');
-  const context = formatForContext(result);
-  console.log('   Context preview:');
-  console.log(context.split('\n').slice(0, 10).map(l => '     ' + l).join('\n'));
+  // formatForContext is in budget.ts but we'll test formatProfile instead
+  const formattedProfile = formatProfile(profile);
+  console.log('   Formatted profile preview:');
+  console.log(formattedProfile.split('\n').slice(0, 10).map(l => '     ' + l).join('\n'));
   
   // Summary
   console.log('\n' + '='.repeat(60));
