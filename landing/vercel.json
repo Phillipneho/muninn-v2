@@ -1,6 +1,16 @@
 {
   "version": 2,
   "rewrites": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "api.muninn.au" }],
+      "destination": "/api/:path*"
+    },
+    {
+      "source": "/",
+      "has": [{ "type": "host", "value": "api.muninn.au" }],
+      "destination": "/api"
+    },
     { "source": "/api/:path*", "destination": "/api/index" },
     { "source": "/dashboard", "destination": "/dashboard.html" },
     { "source": "/success", "destination": "/success.html" },
